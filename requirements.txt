@@ -1,0 +1,12 @@
+# Requirements for IMAP sync to Gmail script
+# Install with: pip install -r requirements.txt
+
+# Required for OAuth2 token generation (get_gmail_token.py)
+google-auth-oauthlib>=1.0.0
+google-auth-httplib2>=0.1.0
+
+# Required for OAuth2 token refresh (imap_sync_to_gmail.py)
+requests>=2.31.0
+
+# Optional: For better log compression (falls back to gzip if not available)
+zstandard>=0.22.0

@@ -1,0 +1,22 @@
+# Configuration files with sensitive credentials
+config.json
+token.json
+client_secret*
+sync_state.json
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store

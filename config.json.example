@@ -1,0 +1,7 @@
+{
+  "source_server": "imap.sourceserver.com",
+  "source_user": "user@sourceserver.com",
+  "source_pass": "source_password",
+  "target_user": "your-email@gmail.com",
+  "target_token_file": "token.json"
+}
