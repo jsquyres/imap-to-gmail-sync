@@ -336,7 +336,7 @@ class IMAPSync:
 
         Args:
             conn: IMAP connection
-            since_date: Only fetch messages on or after this date
+            since_date: Only fetch messages on or after this date (in UTC)
 
         Returns:
             List of tuples (message_id, message_data, timestamp_iso)
@@ -346,9 +346,16 @@ class IMAPSync:
         try:
             conn.select('INBOX', readonly=True)
 
+            # IMAP SINCE uses server's local date (no timezone), so we need to be conservative.
+            # Subtract an extra day to account for timezone differences between UTC and server time.
+            # This ensures we don't miss messages due to timezone offset (up to ±24 hours).
+            # We'll filter out duplicates using our state tracking.
+            conservative_date = since_date - timedelta(days=1)
+
             # Format date for IMAP SINCE command (DD-MMM-YYYY)
-            date_str = since_date.strftime('%d-%b-%Y')
-            logger.debug(f"Searching for messages since {date_str}")
+            # Note: IMAP SINCE compares dates only (no time component) in server's local timezone
+            date_str = conservative_date.strftime('%d-%b-%Y')
+            logger.debug(f"Searching for messages since {date_str} (server local date, adjusted from {since_date.date()} UTC for timezone safety)")
 
             _, message_numbers = conn.search(None, f'SINCE {date_str}')
 
@@ -357,7 +364,7 @@ class IMAPSync:
                 return messages
 
             msg_nums = message_numbers[0].split()
-            logger.info(f"Found {len(msg_nums)} messages since {date_str}")
+            logger.info(f"Found {len(msg_nums)} messages since {date_str} (may include some older than {since_date.date()} UTC due to timezone adjustment)")
 
             for num in msg_nums:
                 try:
@@ -371,6 +378,14 @@ class IMAPSync:
                         if msg_id:
                             # Extract Date header and convert to ISO format
                             msg_timestamp = self.extract_message_timestamp(email_message)
+
+                            # Filter out messages that are actually before our UTC cutoff
+                            # This handles the timezone safety margin we added above
+                            msg_datetime = datetime.fromisoformat(msg_timestamp)
+                            if msg_datetime < since_date:
+                                logger.debug(f"Skipping message {msg_id} (date: {msg_timestamp}) - before UTC cutoff {since_date.isoformat()}")
+                                continue
+
                             messages.append((msg_id, raw_email, msg_timestamp))
                             logger.debug(f"Fetched message: {msg_id} (date: {msg_timestamp})")
                         else:
@@ -605,12 +620,12 @@ class IMAPSync:
             logger.error(f"Error processing new messages: {e}")
             return last_uid
 
-    def idle_monitor(self, timeout: int = 29 * 60):
+    def idle_monitor(self, timeout: int = 14 * 60):
         """
         Monitor for new emails using IMAP IDLE for real-time notifications.
 
         Args:
-            timeout: IDLE timeout in seconds (default: 29 minutes, max is typically 30)
+            timeout: IDLE timeout in seconds (default: 14 minutes, max is typically 30)
         """
         logger.info("=" * 60)
         logger.info("Entering IDLE monitoring mode (real-time notifications)")
