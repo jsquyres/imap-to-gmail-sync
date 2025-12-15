@@ -1,6 +1,45 @@
-# IMAP Email Synchronization with Gmail OAuth2
+# IMAP Email Synchronization with Gmail
 
-This script synchronizes emails from a source IMAP server to Gmail using OAuth2 authentication.
+This script is a one-way synchronization: new emails that appear at
+the source IMAP server are uploaded to Gmail (via IMAP).
+
+Effectively: this script forwards emails received at one mail server
+to a Gmail inbox using IMAP as the transport mechanism.
+
+## Why does this project exist?
+
+I created this project because I own a domain and run an email server
+on that domain.  Several of my family members receive email at this
+domain, but prefer to use the Gmail client to access their email.
+
+Google has many rules, policies, and anti-spam measures in place that
+make forwarding email from a small, independent email server to Gmail
+difficult.  For example, if you just blindly forward all mail sent to
+joe@example.com to joe@gmail.com, that will likely include forwarding
+a bunch of spam.  Google will eventually intepret that the SMTP server
+at example.com is a spammer, and start penalizing that domain
+accordingly.
+
+For years, Gmail offered a feature that periodically POPed mail from
+an external mail account and pulled it into a Gmail account.  Even
+though this could introduce significant delays in getting mails
+delivered to the Gmail account (because Gmail might poll POP for new
+messages as little as once an hour), my family members all used this
+service: it was reliable and didn't run afoul of any of Googles rules
+/ policies / anti-spam measures / etc.
+
+As of January 2026, however, [this POP-to-Gmail feature is being
+retired](https://support.google.com/mail/answer/16604719).  I
+therefore need a different mechanism for my family members to a) keep
+receiving email at my domain but b) have the mail magically show up in
+their Gmail inbox.
+
+Hence: this project.  The intent is that this Python script will login
+as family member X to my IMAP server, and also login to family
+member's X Gmail account via IMAP.  In general, when a new email
+arrives at my mail server, IMAP will send an asynchronous notification
+which will prompt this Python script to download the message and then
+upload it (via IMAP) to family member X's Gmail inbox.
 
 ## Features
 
@@ -80,8 +119,6 @@ Create a configuration file (e.g., `config.json`) with your server settings:
 
 A sample configuration file is provided as `config.json.example`.
 
-**Important**: Keep your configuration file secure and never commit it to version control. Add `config.json` to your `.gitignore`.
-
 ### Basic Usage
 
 ```bash
@@ -91,7 +128,8 @@ python imap_sync_to_gmail.py --config config.json
 The script will:
 1. On first run: sync emails from the last 7 days
 2. On subsequent runs: resume from where it left off, only syncing new messages
-3. Track all synced messages in `sync_state.json` to prevent duplicates
+3. Track the last 31 days worth of synced messages in
+   `sync_state.json` to prevent duplicates
 
 ### Enable Debug Logging
 
@@ -178,8 +216,6 @@ This state allows the script to:
 - Avoid re-copying messages that were already synced
 - Work efficiently even when restarted multiple times
 
-**Important**: Keep the state file with your configuration. If deleted, the script will start fresh and may create duplicates for messages that were previously synced.
-
 ## How It Works
 
 1. **Initial Sync**:
@@ -187,6 +223,15 @@ This state allows the script to:
    - On subsequent runs: resumes from the last sync timestamp
    - Connects to source server and Gmail (imap.gmail.com)
    - Retrieves emails from source INBOX since the start date
+     - Note that the IMAP protocol only allows searching for messages
+       by date (not a specific timestamp on a date).
+     - Hence, when re-starting the script, it is expected that we may
+       find messages on the source IMAP server that have already been
+       transferred to Gmail.
+     - The script therefore tracks message IDs of messages that it
+       transferrs to Gmail, enabling duplicate detection and the
+       prevention of transferring the same message to Gmail more than
+       once.
    - Checks state file to skip already-synced messages
    - Copies missing emails to Gmail
    - Updates state file after each batch (every 10 messages)
