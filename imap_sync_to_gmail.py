@@ -573,11 +573,14 @@ class IMAPSync:
                             # Extract message timestamp
                             msg_timestamp = self.extract_message_timestamp(email_message)
 
+                            # Extract subject for logging
+                            subject = email_message.get('Subject', '(no subject)')[:100]
+
                             # Check if already exists on target before copying
                             if not self.check_message_exists(self.tgt_conn, msg_id):
-                                logger.info(f"Copying new message: {msg_id}")
+                                logger.info(f"Copying new message: {msg_id}: {subject}")
                                 if self.copy_message(raw_email):
-                                    logger.info(f"Successfully copied: {msg_id}")
+                                    logger.info(f"Successfully copied: {msg_id}: {subject}")
                                     synced_message_ids[msg_id] = msg_timestamp
                                     copied_in_batch += 1
                                 else:
