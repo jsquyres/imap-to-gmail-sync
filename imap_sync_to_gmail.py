@@ -133,25 +133,19 @@ class IMAPSync:
         except Exception as e:
             logger.error(f"Failed to save state: {e}")
 
-    def connect(self) -> bool:
+    def connect_target(self, log_prefix: str = "Connecting") -> bool:
         """
-        Establish encrypted IMAP connections to both servers.
+        Connect to the target IMAP server (Gmail) using OAuth2.
+
+        Args:
+            log_prefix: Prefix for log messages (e.g., "Connecting" or "Reconnecting")
 
         Returns:
-            True if both connections successful, False otherwise
+            True if connection successful, False otherwise
         """
         try:
-            # Connect to source server
-            logger.info(f"Connecting to source IMAP server: {self.src_server}")
-            self.src_conn = imaplib.IMAP4_SSL(self.src_server)
-            self.src_conn.login(self.src_user, self.src_pass)
-            logger.info(f"Successfully authenticated to source server as {self.src_user}")
-
-            # Check if server supports IDLE
-            self.check_idle_support()
-
             # Connect to target server (Gmail) using OAuth2
-            logger.info(f"Connecting to target IMAP server (Gmail): {self.tgt_server}")
+            logger.info(f"{log_prefix} to target IMAP server (Gmail): {self.tgt_server}")
             self.tgt_conn = imaplib.IMAP4_SSL(self.tgt_server)
 
             # Authenticate with OAuth2
@@ -179,6 +173,33 @@ class IMAPSync:
                         raise auth_error
                 else:
                     raise auth_error
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to connect to target server: {e}")
+            return False
+
+    def connect(self) -> bool:
+        """
+        Establish encrypted IMAP connections to both servers.
+
+        Returns:
+            True if both connections successful, False otherwise
+        """
+        try:
+            # Connect to source server
+            logger.info(f"Connecting to source IMAP server: {self.src_server}")
+            self.src_conn = imaplib.IMAP4_SSL(self.src_server)
+            self.src_conn.login(self.src_user, self.src_pass)
+            logger.info(f"Successfully authenticated to source server as {self.src_user}")
+
+            # Check if server supports IDLE
+            self.check_idle_support()
+
+            # Connect to target server using helper method
+            if not self.connect_target("Connecting"):
+                return False
 
             return True
 
@@ -383,7 +404,7 @@ class IMAPSync:
                             # This handles the timezone safety margin we added above
                             msg_datetime = datetime.fromisoformat(msg_timestamp)
                             if msg_datetime < since_date:
-                                logger.debug(f"Skipping message {msg_id} (date: {msg_timestamp}) - before UTC cutoff {since_date.isoformat()}")
+                                logger.debug(f"Skipping message {msg_id} (date: {msg_timestamp}) - older than requested cutoff {since_date.isoformat()} (caught by timezone-safe query margin)")
                                 continue
 
                             messages.append((msg_id, raw_email, msg_timestamp))
@@ -423,9 +444,27 @@ class IMAPSync:
         # Fallback to current UTC time if Date header is missing or invalid
         return datetime.now(timezone.utc).isoformat()
 
+    def reconnect_target(self) -> bool:
+        """
+        Reconnect to the target IMAP server (Gmail).
+
+        Returns:
+            True if reconnection successful, False otherwise
+        """
+        # Close existing connection if any
+        if self.tgt_conn:
+            try:
+                self.tgt_conn.logout()
+            except:
+                pass
+
+        # Use the common connect_target method
+        return self.connect_target("Reconnecting")
+
     def copy_message(self, message_data: bytes) -> bool:
         """
         Copy a message to the target server's INBOX.
+        Implements retry logic with connection recovery for transient failures.
 
         Args:
             message_data: Raw email message data
@@ -433,14 +472,46 @@ class IMAPSync:
         Returns:
             True if successful, False otherwise
         """
-        try:
-            self.tgt_conn.select('INBOX')
-            # Use APPEND to add the message directly
-            self.tgt_conn.append('INBOX', '', imaplib.Time2Internaldate(time.time()), message_data)
-            return True
-        except Exception as e:
-            logger.error(f"Error copying message: {e}")
-            return False
+        max_attempts = 5
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                self.tgt_conn.select('INBOX')
+                # Use APPEND to add the message directly
+                self.tgt_conn.append('INBOX', '', imaplib.Time2Internaldate(time.time()), message_data)
+
+                # Log retry success if this wasn't the first attempt
+                if attempt > 1:
+                    logger.info(f"Successfully copied message on attempt {attempt}")
+
+                return True
+
+            except (imaplib.IMAP4.abort, OSError, ConnectionError, TimeoutError) as e:
+                # Connection-related errors - try to reconnect
+                logger.error(f"Connection error on attempt {attempt}/{max_attempts} while copying message: {e}")
+
+                if attempt < max_attempts:
+                    logger.info(f"Attempting to reconnect to target server (attempt {attempt}/{max_attempts})...")
+
+                    # Close and reconnect
+                    if self.reconnect_target():
+                        logger.info("Reconnection successful, retrying message copy...")
+                        continue
+                    else:
+                        logger.error("Reconnection failed")
+                        # Continue to next attempt anyway in case connection recovers
+                        time.sleep(2)  # Brief delay before retry
+                        continue
+                else:
+                    logger.error(f"Failed to copy message after {max_attempts} attempts due to connection errors")
+                    return False
+
+            except Exception as e:
+                # Non-connection errors - log and fail immediately
+                logger.error(f"Non-recoverable error copying message on attempt {attempt}: {e}")
+                return False
+
+        return False
 
     def check_message_exists(self, conn: imaplib.IMAP4_SSL, msg_id: str) -> bool:
         """Check if a message with given Message-ID exists on the server.
