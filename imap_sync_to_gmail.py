@@ -643,7 +643,9 @@ class IMAPSync:
             # Process each new message
             for uid in new_uids:
                 try:
-                    logger.debug(f"Fetching message UID: {uid.decode()}")
+                    # Convert UID to string for logging (handle both bytes and int)
+                    uid_str = uid.decode() if isinstance(uid, bytes) else str(uid)
+                    logger.debug(f"Fetching message UID: {uid_str}")
                     _, msg_data = self.src_conn.uid('FETCH', uid, '(RFC822)')
                     if msg_data and msg_data[0]:
                         raw_email = msg_data[0][1]
@@ -675,9 +677,9 @@ class IMAPSync:
                                 logger.debug(f"Message already exists on target: {msg_id}")
                                 synced_message_ids[msg_id] = msg_timestamp
                         else:
-                            logger.warning(f"Message UID {uid.decode()} has no Message-ID")
+                            logger.warning(f"Message UID {uid_str} has no Message-ID")
                 except Exception as e:
-                    logger.error(f"Error processing message UID {uid}: {e}")
+                    logger.error(f"Error processing message UID {uid_str}: {e}")
 
             # Update state with new UIDs
             self.state['last_source_uid'] = current_max_uid
