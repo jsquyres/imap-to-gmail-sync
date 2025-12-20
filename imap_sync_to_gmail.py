@@ -180,12 +180,12 @@ class IMAPSync:
             logger.error(f"Failed to connect to target server: {e}")
             return False
 
-    def connect(self) -> bool:
+    def connect_source(self) -> bool:
         """
-        Establish encrypted IMAP connections to both servers.
+        Connect to the source IMAP server.
 
         Returns:
-            True if both connections successful, False otherwise
+            True if connection successful, False otherwise
         """
         try:
             # Connect to source server
@@ -197,18 +197,48 @@ class IMAPSync:
             # Check if server supports IDLE
             self.check_idle_support()
 
-            # Connect to target server using helper method
-            if not self.connect_target("Connecting"):
-                return False
-
             return True
 
         except imaplib.IMAP4.error as e:
-            logger.error(f"IMAP authentication error: {e}")
+            logger.error(f"IMAP authentication error on source server: {e}")
             return False
         except Exception as e:
-            logger.error(f"Connection error: {e}")
+            logger.error(f"Connection error on source server: {e}")
             return False
+
+    def connect(self) -> bool:
+        """
+        Establish encrypted IMAP connections to both servers.
+
+        Returns:
+            True if both connections successful, False otherwise
+        """
+        # Connect to source server using helper method
+        if not self.connect_source():
+            return False
+
+        # Connect to target server using helper method
+        if not self.connect_target("Connecting"):
+            return False
+
+        return True
+
+    def reconnect_target(self) -> bool:
+        """
+        Reconnect to the target IMAP server (Gmail).
+
+        Returns:
+            True if reconnection successful, False otherwise
+        """
+        # Close existing connection if any
+        if self.tgt_conn:
+            try:
+                self.tgt_conn.logout()
+            except:
+                pass
+
+        # Use the common connect_target method
+        return self.connect_target("Reconnecting")
 
     def generate_oauth2_string(self, user: str, token: str) -> str:
         """
@@ -443,23 +473,6 @@ class IMAPSync:
 
         # Fallback to current UTC time if Date header is missing or invalid
         return datetime.now(timezone.utc).isoformat()
-
-    def reconnect_target(self) -> bool:
-        """
-        Reconnect to the target IMAP server (Gmail).
-
-        Returns:
-            True if reconnection successful, False otherwise
-        """
-        # Close existing connection if any
-        if self.tgt_conn:
-            try:
-                self.tgt_conn.logout()
-            except:
-                pass
-
-        # Use the common connect_target method
-        return self.connect_target("Reconnecting")
 
     def copy_message(self, message_data: bytes) -> bool:
         """
@@ -868,7 +881,6 @@ class IMAPSync:
 
         return 0
 
-
 def configure_logging(log_target: str, debug: bool, max_bytes: int = 10*1024*1024, backup_count: int = 5):
     """Configure logging based on destination and debug level.
 
@@ -978,7 +990,6 @@ def configure_logging(log_target: str, debug: bool, max_bytes: int = 10*1024*102
 
     if debug:
         logger.debug(f"Debug logging enabled, output to {log_target}")
-
 
 def main():
     """Parse arguments and run the sync."""
@@ -1092,7 +1103,6 @@ def main():
         sync.idle_supported = False
 
     return sync.run()
-
 
 if __name__ == '__main__':
     sys.exit(main())
