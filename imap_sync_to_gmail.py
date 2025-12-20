@@ -24,6 +24,28 @@ import sys
 logger = logging.getLogger(__name__)
 
 
+class ActivityTrackingHandler(logging.Handler):
+    """Handler that tracks whether any logging has occurred.
+
+    This allows us to help limit the amount of logging output during idle periods.
+    Specifically: be able to tell if we have emitted something since the last time
+    we checked.  If nothing has occurred, no need to emit again."""
+
+    def __init__(self):
+        super().__init__()
+        self.activity_occurred = False
+
+    def emit(self, record):
+        """Called for every log record - mark activity as occurred."""
+        self.activity_occurred = True
+
+    def check_and_reset(self) -> bool:
+        """Check if activity occurred and reset the flag."""
+        occurred = self.activity_occurred
+        self.activity_occurred = False
+        return occurred
+
+
 class IMAPSync:
     """Handles IMAP email synchronization between two servers."""
 
@@ -728,6 +750,10 @@ class IMAPSync:
                 last_uid = int(uids[-1])
         logger.info(f"Starting IDLE monitoring from UID: {last_uid}")
 
+        # Set up activity tracking handler to monitor logging activity
+        activity_handler = ActivityTrackingHandler()
+        logger.addHandler(activity_handler)
+
         try:
             while True:
                 try:
@@ -745,7 +771,9 @@ class IMAPSync:
                         logger.error(f"Unexpected IDLE response: {response}")
                         break
 
-                    logger.info("IDLE mode active - waiting for new messages...")
+                    # Only emit this message if something else has been logged since last time
+                    if activity_handler.check_and_reset():
+                        logger.info("IDLE mode active - waiting for new messages...")
 
                     # Wait for notifications with timeout
                     start_time = time.time()
@@ -795,6 +823,9 @@ class IMAPSync:
                 self.src_conn.send(b"DONE\r\n")
             except:
                 pass
+        finally:
+            # Remove the activity tracking handler
+            logger.removeHandler(activity_handler)
 
     def poll_monitor(self, poll_interval: int = 60):
         """
