@@ -1,0 +1,46 @@
+# Git files
+.git
+.gitignore
+.pre-commit-config.yaml
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+.pytest_cache
+.coverage
+
+# Virtual environments
+py313/
+venv/
+env/
+ENV/
+
+# User configuration and state files
+*.json
+!config.json.example
+*.txt
+!requirements.txt
+*.log
+
+# Documentation
+README.md
+LICENSE
+
+# IDE files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

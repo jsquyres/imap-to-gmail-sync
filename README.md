@@ -50,16 +50,48 @@ upload it (via IMAP) to family member X's Gmail inbox.
 - **Continuous monitoring** - automatically copy new emails as they arrive
 - **Comprehensive logging** - track all sync operations
 - **Automatic OAuth token refresh** - no manual token renewal needed
+- **Docker support** - containerized deployment with automated builds
 
 ## Prerequisites
 
-### Required Python Packages
+### Docker (Recommended)
+
+The easiest way to run this project is with Docker. No Python setup required!
+
+Pre-built images are automatically published to GitHub Container Registry:
+- On every push to `main` branch → `latest` and `edge` tags
+- On every tagged release → version-specific tags (e.g., `v1.0.0`)
+
+Pull the image:
+```bash
+docker pull ghcr.io/jsquyres/imap-to-gmail-sync:latest
+```
+
+See the [Docker Usage](#docker-recommended) section below for complete instructions.
+
+### Building Docker Image Locally
+
+To build the Docker image yourself:
+
+```bash
+# Build the image
+docker build -t imap-to-gmail-sync:local .
+
+# Test it
+docker run --rm imap-to-gmail-sync:local python imap_sync_to_gmail.py --help
+```
+
+### Native Python Installation
+
+If you prefer not to use Docker:
+
+#### Required Python Packages
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### Gmail OAuth2 Setup
+#### Gmail OAuth2 Setup
 
 To use Gmail as the target server, you need to set up OAuth2 credentials:
 
@@ -103,7 +135,94 @@ To use Gmail as the target server, you need to set up OAuth2 credentials:
 
 ## Usage
 
-### Configuration File Setup
+### Docker (Recommended)
+
+The easiest way to run this project is using Docker. Pre-built images are available from GitHub Container Registry.
+
+#### Pull the Docker image
+
+```bash
+# Pull the latest version
+docker pull ghcr.io/jsquyres/imap-to-gmail-sync:latest
+
+# Or pull a specific version
+docker pull ghcr.io/jsquyres/imap-to-gmail-sync:v1.0.0
+```
+
+#### Generate OAuth Token
+
+First, obtain your Gmail OAuth token:
+
+```bash
+# Create a directory for your configuration files
+mkdir -p ~/imap-sync-data
+
+# Copy your client_secret.json to the data directory
+cp client_secret.json ~/imap-sync-data/
+
+# Generate the OAuth token
+docker run --rm -it \
+  -v ~/imap-sync-data:/data \
+  ghcr.io/jsquyres/imap-to-gmail-sync:latest \
+  python get_gmail_token.py --credentials /data/client_secret.json --token /data/token.json
+```
+
+#### Create Configuration File
+
+Create a configuration file at `~/imap-sync-data/config.json`:
+
+```json
+{
+  "source_server": "imap.sourceserver.com",
+  "source_user": "user@sourceserver.com",
+  "source_pass": "source_password",
+  "target_user": "your-email@gmail.com",
+  "target_token_file": "/data/token.json"
+}
+```
+
+#### Run the Sync
+
+```bash
+# Run the sync in the foreground (for testing)
+docker run --rm -it \
+  -v ~/imap-sync-data:/data \
+  ghcr.io/jsquyres/imap-to-gmail-sync:latest \
+  python imap_sync_to_gmail.py --config /data/config.json --log /data/sync.log
+
+# Run the sync in the background (detached)
+docker run -d \
+  --name imap-sync \
+  --restart unless-stopped \
+  -v ~/imap-sync-data:/data \
+  ghcr.io/jsquyres/imap-to-gmail-sync:latest \
+  python imap_sync_to_gmail.py --config /data/config.json --log /data/sync.log
+```
+
+#### Managing the Container
+
+```bash
+# View logs
+docker logs imap-sync
+
+# Follow logs in real-time
+docker logs -f imap-sync
+
+# Stop the sync
+docker stop imap-sync
+
+# Start it again
+docker start imap-sync
+
+# Remove the container
+docker rm imap-sync
+```
+
+### Native Python Installation
+
+If you prefer not to use Docker, you can run the scripts directly with Python.
+
+#### Configuration File Setup
 
 Create a configuration file (e.g., `config.json`) with your server settings:
 
@@ -119,7 +238,7 @@ Create a configuration file (e.g., `config.json`) with your server settings:
 
 A sample configuration file is provided as `config.json.example`.
 
-### Basic Usage
+#### Basic Usage
 
 ```bash
 python imap_sync_to_gmail.py --config config.json
@@ -131,13 +250,13 @@ The script will:
 3. Track the last 31 days worth of synced messages in
    `sync_state.json` to prevent duplicates
 
-### Enable Debug Logging
+#### Enable Debug Logging
 
 ```bash
 python imap_sync_to_gmail.py --config config.json --debug
 ```
 
-### Logging Options
+#### Logging Options
 
 Log to a file (with automatic rotation):
 
