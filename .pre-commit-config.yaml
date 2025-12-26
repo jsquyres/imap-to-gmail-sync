@@ -1,0 +1,47 @@
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-ast
+      - id: check-case-conflict
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+        exclude: |
+            (?x)^(
+                .+.in|
+                .+.pm|
+                .+.template
+            )$
+      - id: check-illegal-windows-names
+      - id: check-json
+      - id: check-yaml
+      - id: check-toml
+      - id: check-xml
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: destroyed-symlinks
+      - id: detect-aws-credentials
+      - id: detect-private-key
+      - id: end-of-file-fixer
+        exclude: |
+          (?x)^(
+            3rd-party|
+            .+.diff|
+            .+.patch
+          )
+      - id: mixed-line-ending
+        exclude: |
+          (?x)^(
+            3rd-party|
+            .+.diff|
+            .+.patch
+          )
+      - id: trailing-whitespace
+        exclude: |
+          (?x)^(
+            3rd-party|
+            .+.diff|
+            .+.patch|
+            .+.md
+          )

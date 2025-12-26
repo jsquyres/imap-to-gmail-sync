@@ -190,8 +190,12 @@ class IMAPSync:
                             self.tgt_conn.authenticate('XOAUTH2', lambda x: auth_string.encode())
                             logger.info(f"Successfully authenticated to Gmail with refreshed token as {self.tgt_user}")
                         else:
+                            # Token refresh failed - this is a fatal error
+                            logger.error("Cannot continue without valid authentication")
+                            logger.error("Please generate a new token and restart the sync")
                             raise auth_error
                     else:
+                        logger.error("Token refresh not available (missing token_file or token_data)")
                         raise auth_error
                 else:
                     raise auth_error
@@ -324,11 +328,45 @@ class IMAPSync:
             logger.info("Successfully refreshed OAuth token")
             return new_token_data['access_token']
 
+        except requests.exceptions.HTTPError as e:
+            # Parse error response for more details
+            error_detail = ""
+            try:
+                error_response = e.response.json()
+                error_detail = error_response.get('error', '')
+                error_description = error_response.get('error_description', '')
+
+                if error_detail:
+                    logger.error(f"Token refresh failed: {error_detail}")
+                    if error_description:
+                        logger.error(f"Details: {error_description}")
+            except:
+                pass
+
+            # Provide actionable guidance based on error type
+            if e.response.status_code == 400:
+                logger.error("="*60)
+                logger.error("AUTHENTICATION ERROR: Refresh token is invalid or expired")
+                logger.error("="*60)
+                logger.error("Your OAuth refresh token is no longer valid. This can happen if:")
+                logger.error("  - The token was revoked in Google Account settings")
+                logger.error("  - The token expired (refresh tokens can expire)")
+                logger.error("  - The OAuth client credentials changed")
+                logger.error("")
+                logger.error("ACTION REQUIRED: Generate a new OAuth token by running:")
+                logger.error(f"  python3 get_gmail_token.py")
+                logger.error("")
+                logger.error("This will create a new token file that you can use.")
+                logger.error("="*60)
+            else:
+                logger.error(f"Failed to refresh token: {e}")
+
+            return None
         except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to refresh token: {e}")
+            logger.error(f"Network error during token refresh: {e}")
             return None
         except Exception as e:
-            logger.error(f"Error during token refresh: {e}")
+            logger.error(f"Unexpected error during token refresh: {e}")
             return None
 
     def check_idle_support(self):
