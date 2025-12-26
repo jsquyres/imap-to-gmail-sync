@@ -29,7 +29,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Container Registry
-        if: github.event_name != 'pull_request'
+        if: startsWith(github.ref, 'refs/tags/')
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -83,7 +83,7 @@ jobs:
           docker run --rm "$IMAGE_TAG" python -c "import imaplib, email, logging, json, requests; from google.auth.transport.requests import Request; from google_auth_oauthlib.flow import InstalledAppFlow; print('✓ All imports successful')"
 
       - name: Push Docker image
-        if: github.event_name != 'pull_request'
+        if: startsWith(github.ref, 'refs/tags/')
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -94,7 +94,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Output image details
-        if: github.event_name != 'pull_request'
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           echo "## Docker Image Published 🐳" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
