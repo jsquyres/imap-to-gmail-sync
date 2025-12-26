@@ -521,9 +521,9 @@ class IMAPSync:
 
                 return True
 
-            except (imaplib.IMAP4.abort, OSError, ConnectionError, TimeoutError) as e:
-                # Connection-related errors - try to reconnect
-                logger.error(f"Connection error on attempt {attempt}/{max_attempts} while copying message: {e}")
+            except Exception as e:
+                # On all errors, retry
+                logger.error(f"Error on attempt {attempt}/{max_attempts} while copying message: {e}")
 
                 if attempt < max_attempts:
                     logger.info(f"Attempting to reconnect to target server (attempt {attempt}/{max_attempts})...")
@@ -538,13 +538,8 @@ class IMAPSync:
                         time.sleep(2)  # Brief delay before retry
                         continue
                 else:
-                    logger.error(f"Failed to copy message after {max_attempts} attempts due to connection errors")
+                    logger.error(f"Failed to copy message after {max_attempts} attempts")
                     return False
-
-            except Exception as e:
-                # Non-connection errors - log and fail immediately
-                logger.error(f"Non-recoverable error copying message on attempt {attempt}: {e}")
-                return False
 
         return False
 
