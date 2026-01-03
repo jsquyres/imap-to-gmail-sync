@@ -266,6 +266,43 @@ class IMAPSync:
         # Use the common connect_target method
         return self.connect_target("Reconnecting")
 
+    def with_target_retry(self, operation, *args, max_attempts: int = 3, **kwargs):
+        """
+        Execute an operation on the target IMAP connection with automatic retry and reconnection.
+
+        Args:
+            operation: Callable to execute
+            *args: Positional arguments for the operation
+            max_attempts: Maximum number of retry attempts (default: 3)
+            **kwargs: Keyword arguments for the operation
+
+        Returns:
+            Result of the operation
+
+        Raises:
+            Exception: If all retry attempts fail
+        """
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return operation(*args, **kwargs)
+            except Exception as e:
+                logger.error(f"Target IMAP error on attempt {attempt}/{max_attempts}: {e}")
+
+                if attempt < max_attempts:
+                    logger.info(f"Attempting to reconnect to target server (attempt {attempt}/{max_attempts})...")
+
+                    # Close and reconnect
+                    if self.reconnect_target():
+                        logger.info("Reconnection successful, retrying operation...")
+                        continue
+                    else:
+                        logger.error("Reconnection failed")
+                        time.sleep(2)  # Brief delay before retry
+                        continue
+                else:
+                    logger.error(f"Operation failed after {max_attempts} attempts")
+                    raise
+
     def generate_oauth2_string(self, user: str, token: str) -> str:
         """
         Generate OAuth2 authentication string for Gmail IMAP.
@@ -545,41 +582,18 @@ class IMAPSync:
         Returns:
             True if successful, False otherwise
         """
-        max_attempts = 5
-
-        for attempt in range(1, max_attempts + 1):
-            try:
+        try:
+            def _copy():
                 self.tgt_conn.select('INBOX')
                 # Use APPEND to add the message directly
                 self.tgt_conn.append('INBOX', '', imaplib.Time2Internaldate(time.time()), message_data)
 
-                # Log retry success if this wasn't the first attempt
-                if attempt > 1:
-                    logger.info(f"Successfully copied message on attempt {attempt}")
+            self.with_target_retry(_copy, max_attempts=5)
+            return True
 
-                return True
-
-            except Exception as e:
-                # On all errors, retry
-                logger.error(f"Error on attempt {attempt}/{max_attempts} while copying message: {e}")
-
-                if attempt < max_attempts:
-                    logger.info(f"Attempting to reconnect to target server (attempt {attempt}/{max_attempts})...")
-
-                    # Close and reconnect
-                    if self.reconnect_target():
-                        logger.info("Reconnection successful, retrying message copy...")
-                        continue
-                    else:
-                        logger.error("Reconnection failed")
-                        # Continue to next attempt anyway in case connection recovers
-                        time.sleep(2)  # Brief delay before retry
-                        continue
-                else:
-                    logger.error(f"Failed to copy message after {max_attempts} attempts")
-                    return False
-
-        return False
+        except Exception as e:
+            logger.error(f"Failed to copy message after all retry attempts: {e}")
+            return False
 
     def check_message_exists(self, conn: imaplib.IMAP4_SSL, msg_id: str) -> bool:
         """Check if a message with given Message-ID exists on the server.
@@ -591,14 +605,27 @@ class IMAPSync:
         Returns:
             True if message exists, False otherwise
         """
-        try:
-            conn.select('INBOX', readonly=True)
-            # Search for the specific Message-ID
-            _, result = conn.search(None, f'HEADER Message-ID "{msg_id}"')
-            return len(result[0]) > 0
-        except Exception as e:
-            logger.debug(f"Error checking if message exists: {e}")
-            return False
+        # If this is the target connection, use retry logic (because
+        # Gmail may expire our token and require a refresh)
+        if conn is self.tgt_conn:
+            try:
+                def _check():
+                    conn.select('INBOX', readonly=True)
+                    _, result = conn.search(None, f'HEADER Message-ID "{msg_id}"')
+                    return len(result[0]) > 0
+                return self.with_target_retry(_check)
+            except Exception as e:
+                logger.error(f"Error checking if message exists on target after retries: {e}")
+                return False
+        else:
+            # Source connection: do it without retry logic
+            try:
+                conn.select('INBOX', readonly=True)
+                _, result = conn.search(None, f'HEADER Message-ID "{msg_id}"')
+                return len(result[0]) > 0
+            except Exception as e:
+                logger.debug(f"Error checking if message exists: {e}")
+                return False
 
     def initial_sync(self):
         """Perform initial bulk synchronization."""
