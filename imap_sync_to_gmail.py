@@ -610,6 +610,7 @@ class IMAPSync:
         if conn is self.tgt_conn:
             try:
                 def _check():
+                    logging.debug(f"Checking if message exists on target server: {msg_id}")
                     conn.select('INBOX', readonly=True)
                     _, result = conn.search(None, f'HEADER Message-ID "{msg_id}"')
                     return len(result[0]) > 0
@@ -984,7 +985,7 @@ def configure_logging(log_target: str, debug: bool, max_bytes: int = 10*1024*102
         backup_count: Number of backup log files to keep (default: 5)
     """
     log_level = logging.DEBUG if debug else logging.INFO
-    log_format = '%(asctime)s - %(levelname)s - %(message)s'
+    log_format = '%(asctime)s %(levelname)s [%(funcName)s] %(message)s'
     date_format = '%Y-%m-%d %H:%M:%S'
 
     # Remove any existing handlers
@@ -1013,7 +1014,7 @@ def configure_logging(log_target: str, debug: bool, max_bytes: int = 10*1024*102
                     syslog_address = '/dev/log'
                 handler = SysLogHandler(address=syslog_address)
                 # Syslog format (no timestamp needed, syslog adds it)
-                handler.setFormatter(logging.Formatter('imap_sync_to_gmail: %(levelname)s - %(message)s'))
+                handler.setFormatter(logging.Formatter('imap_sync_to_gmail: %(levelname)s [%(funcName)s] %(message)s'))
                 root_logger.addHandler(handler)
             else:
                 # Windows or other - fallback to stderr
