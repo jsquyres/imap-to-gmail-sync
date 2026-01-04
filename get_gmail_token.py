@@ -62,7 +62,20 @@ def get_oauth_token(credentials_file: str, token_file: str = 'token.json') -> st
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             print("Refreshing expired token...")
-            creds.refresh(Request())
+            try:
+                creds.refresh(Request())
+            except Exception as e:
+                print(f"Token refresh failed: {e}")
+                print("Token has been revoked or is invalid. Starting fresh authentication...")
+                # Remove the invalid token file
+                if token_path.exists():
+                    token_path.unlink()
+                    print(f"Removed invalid token file: {token_file}")
+                # Start fresh OAuth flow
+                print("Starting OAuth2 flow...")
+                print("A browser window will open for you to authorize the application.")
+                flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
+                creds = flow.run_local_server(port=0)
         else:
             print("Starting OAuth2 flow...")
             print("A browser window will open for you to authorize the application.")
