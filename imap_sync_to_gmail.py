@@ -611,8 +611,10 @@ class IMAPSync:
             try:
                 def _check():
                     logging.debug(f"Checking if message exists on target server: {msg_id}")
-                    conn.select('INBOX', readonly=True)
-                    _, result = conn.search(None, f'HEADER Message-ID "{msg_id}"')
+                    # Use self.tgt_conn instead of conn to ensure we use the current connection
+                    # after any reconnection attempts
+                    self.tgt_conn.select('INBOX', readonly=True)
+                    _, result = self.tgt_conn.search(None, f'HEADER Message-ID "{msg_id}"')
                     return len(result[0]) > 0
                 return self.with_target_retry(_check)
             except Exception as e:
