@@ -757,7 +757,9 @@ class IMAPSync:
                             msg_timestamp = self.extract_message_timestamp(email_message)
 
                             # Extract subject for logging
-                            subject = email_message.get('Subject', '(no subject)')[:100]
+                            # Note: sometimes the subjects have newlines in them, likely from
+                            # STMP header wrapping.  Clean them up for logging.
+                            subject = email_message.get('Subject', '(no subject)')[:100].replace('\n', ' ').replace('\r', ' '   )
 
                             # Check if already exists on target before copying
                             if not self.check_message_exists(self.tgt_conn, msg_id):
