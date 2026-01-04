@@ -123,7 +123,14 @@ To use Gmail as the target server, you need to set up OAuth2 credentials:
    - Download the JSON file (button appears after creation)
    - Save it as `client_secret.json`
 
-5. **Obtain an Access Token**:
+5. **Publish Your OAuth App** (Important for Long-Running Operation):
+   - Go to "APIs & Services" → "OAuth consent screen" → "Audience"
+   - Click **"PUBLISH APP"** button
+   - Confirm the dialog
+   - **Why this matters**: Apps in "Testing" status have refresh tokens that expire after 7 days (or sometimes even within N number of refreshes), requiring manual re-authentication. Published apps have refresh tokens that remain valid indefinitely (until manually revoked), allowing truly unattended operation.
+   - **Note**: For personal/family use with under 100 users, you don't need Google's verification. Your app will show a "Google hasn't verified this app" warning during login - this is normal and safe for personal apps. Just click "Continue" to proceed.
+
+6. **Obtain an Access Token**:
    ```bash
    python get_gmail_token.py --credentials client_secret.json
    ```
@@ -132,6 +139,7 @@ To use Gmail as the target server, you need to set up OAuth2 credentials:
    - Grant the requested permissions
    - The script will display your access token
    - Token is saved in `token.json` for future use
+   - **Important**: Generate tokens AFTER publishing your app to get non-expiring refresh tokens
 
 ## Usage
 
