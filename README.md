@@ -355,17 +355,271 @@ The JSON configuration file must contain the following fields:
 - `source_user`: Source IMAP server username
 - `source_pass`: Source IMAP password
 - `target_user`: Target Gmail email address
-- `target_token_file`: Path to JSON file containing OAuth2 token (must have a "token" field)
+- `target_token_file`: Path to JSON file containing OAuth2 token
+  (must have a "token" field)
 
 ### Optional Command-Line Arguments
 
-- `--state-file`: Path to state file for tracking synced messages (default: `sync_state.json`)
-- `--log`: Logging target - `stdout`, `stderr`, `syslog`, or a file path (default: `stdout`)
-- `--log-max-size`: Maximum log file size before rotation (e.g., `100K`, `10M`, `1G`) (default: `10M`)
-- `--log-max-files`: Maximum number of rotated log files to keep (default: `5`)
+- `--state-file`: Path to state file for tracking synced messages
+  (default: `sync_state.json`)
+- `--log`: Logging target - `stdout`, `stderr`, `syslog`, or a file
+  path (default: `stdout`)
+- `--log-max-size`: Maximum log file size before rotation (e.g.,
+  `100K`, `10M`, `1G`) (default: `10M`)
+- `--log-max-files`: Maximum number of rotated log files to keep
+  (default: `5`)
 - `--debug`: Enable debug logging for detailed output
-- `--poll-interval N`: Seconds between polls if IDLE not supported (default: 60)
+- `--poll-interval N`: Seconds between polls if IDLE not supported
+  (default: 60)
 - `--no-idle`: Disable IDLE and force polling mode
+
+## Running as a Systemd Service (Linux)
+
+For production deployments on Linux, you can configure the sync script
+to run automatically at boot using user-level systemd services. This
+approach supports running multiple instances simultaneously, each with
+its own configuration, log files, and state tracking.
+
+### Prerequisites
+
+- Linux system with systemd (most modern distributions)
+- Python 3.8 or later installed
+- OAuth token and configuration files already set up (see above)
+
+### Single Instance Setup
+
+#### 1. Create the Systemd Service File
+
+Create `~/.config/systemd/user/imap-sync.service`:
+
+```ini
+[Unit]
+Description=IMAP to Gmail Sync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/imap-to-gmail-sync
+ExecStart=/usr/bin/python3 %h/imap-to-gmail-sync/imap_sync_to_gmail.py \
+    --config %h/imap-to-gmail-sync/config.json \
+    --state-file %h/imap-to-gmail-sync/sync_state.json \
+    --log stderr
+StandardOutput=journal
+StandardError=journal
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target
+```
+
+**Notes**:
+- `%h` expands to your home directory
+- Adjust paths to match your installation location
+- `--log stderr` sends logs to systemd's journal
+- `Restart=always` ensures automatic restart on crashes
+- `RestartSec=30` waits 30 seconds before restarting
+
+#### 2. Enable and Start the Service
+
+```bash
+# Reload systemd to pick up the new service file
+systemctl --user daemon-reload
+
+# Enable the service to start at boot
+systemctl --user enable imap-sync.service
+
+# Start the service now
+systemctl --user start imap-sync.service
+
+# Check the service status
+systemctl --user status imap-sync.service
+```
+
+#### 3. Enable Lingering (Important for Auto-Start)
+
+By default, user systemd services only run while you're logged in.
+To enable auto-start at boot (even when not logged in):
+
+```bash
+# Enable lingering for your user account
+sudo loginctl enable-linger $USER
+```
+
+#### 4. Managing the Service
+
+```bash
+# View logs (last 100 lines)
+journalctl --user -u imap-sync.service -n 100
+
+# Follow logs in real-time
+journalctl --user -u imap-sync.service -f
+
+# Restart the service
+systemctl --user restart imap-sync.service
+
+# Stop the service
+systemctl --user stop imap-sync.service
+
+# Disable auto-start at boot
+systemctl --user disable imap-sync.service
+```
+
+### Multiple Instance Setup (Template Service)
+
+To run multiple sync instances (e.g., for different family members),
+use a systemd template service.
+
+#### 1. Create the Template Service File
+
+Create `~/.config/systemd/user/imap-sync@.service`:
+
+```ini
+[Unit]
+Description=IMAP to Gmail Sync for %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/imap-to-gmail-sync
+ExecStart=/usr/bin/python3 %h/imap-to-gmail-sync/imap_sync_to_gmail.py \
+    --config %h/imap-to-gmail-sync/%i-config.json \
+    --state-file %h/imap-to-gmail-sync/%i-sync_state.json \
+    --log stderr
+StandardOutput=journal
+StandardError=journal
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target
+```
+
+**Key Points**:
+- `%i` is replaced with the instance name (e.g., `alice`, `bob`)
+- Each instance uses its own config and state files
+
+#### 2. Set Up Configuration Files
+
+For each user, create separate files with the instance name prefix:
+
+```bash
+# Alice's configuration
+~/imap-to-gmail-sync/alice-config.json
+~/imap-to-gmail-sync/alice-token.json
+
+# Bob's configuration
+~/imap-to-gmail-sync/bob-config.json
+~/imap-to-gmail-sync/bob-token.json
+
+# And so on...
+```
+
+Example `alice-config.json`:
+```json
+{
+  "source_server": "imap.example.com",
+  "source_user": "alice@example.com",
+  "source_pass": "alice_password",
+  "target_user": "alice@gmail.com",
+  "target_token_file": "/home/youruser/imap-to-gmail-sync/alice-token.json"
+}
+```
+
+#### 3. Enable and Start Multiple Instances
+
+```bash
+# Reload systemd
+systemctl --user daemon-reload
+
+# Enable lingering (only needed once)
+sudo loginctl enable-linger $USER
+
+# Enable and start instances for Alice and Bob
+systemctl --user enable imap-sync@alice.service
+systemctl --user enable imap-sync@bob.service
+systemctl --user start imap-sync@alice.service
+systemctl --user start imap-sync@bob.service
+
+# Check status of all instances
+systemctl --user status 'imap-sync@*.service'
+```
+
+#### 4. Managing Multiple Instances
+
+```bash
+# View logs for a specific instance
+journalctl --user -u imap-sync@alice.service -f
+
+# Restart a specific instance
+systemctl --user restart imap-sync@bob.service
+
+# Stop all instances
+systemctl --user stop 'imap-sync@*.service'
+
+# List all running instances
+systemctl --user list-units 'imap-sync@*.service'
+```
+
+### Log File Alternative
+
+If you prefer log files instead of systemd journal:
+
+Modify the `ExecStart` line in your service file:
+
+```ini
+ExecStart=/usr/bin/python3 %h/imap-to-gmail-sync/imap_sync_to_gmail.py \
+    --config %h/imap-to-gmail-sync/%i-config.json \
+    --state-file %h/imap-to-gmail-sync/%i-sync_state.json \
+    --log %h/imap-to-gmail-sync/%i-sync.log \
+    --log-max-size 50M \
+    --log-max-files 10
+```
+
+This creates separate log files:
+- `alice-sync.log`, `alice-sync.log.1.zst`, etc.
+- `bob-sync.log`, `bob-sync.log.1.zst`, etc.
+
+### Troubleshooting Systemd Services
+
+#### Service fails to start
+
+```bash
+# Check service status and recent logs
+systemctl --user status imap-sync.service
+journalctl --user -u imap-sync.service -n 50
+
+# Verify paths are correct
+# Verify config file is valid JSON
+python3 -m json.tool ~/imap-to-gmail-sync/config.json
+```
+
+#### Service doesn't auto-start at boot
+
+```bash
+# Verify lingering is enabled
+loginctl show-user $USER | grep Linger
+
+# If it shows "Linger=no", enable it:
+sudo loginctl enable-linger $USER
+
+# Verify service is enabled
+systemctl --user is-enabled imap-sync.service
+```
+
+#### Python not found
+
+If `/usr/bin/python3` doesn't exist on your system, find the correct
+path:
+
+```bash
+which python3
+```
+
+Then update the `ExecStart` line in your service file to use the
+correct path.
 
 ## State Management
 
