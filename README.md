@@ -45,9 +45,12 @@ upload it (via IMAP) to family member X's Gmail inbox.
 
 - **Real-time sync** using IMAP IDLE notifications (with polling fallback)
 - **Gmail OAuth2 authentication** - secure "Login with Google"
-- **Persistent state tracking** - remembers synced messages across runs
-- **Initial bulk transfer** - sync historical emails (configurable timeframe)
-- **Continuous monitoring** - automatically copy new emails as they arrive
+- **Persistent state tracking** - remembers synced messages across
+  runs
+- **Initial bulk transfer** - sync historical emails (configurable
+  timeframe)
+- **Continuous monitoring** - automatically copy new emails as they
+  arrive
 - **Comprehensive logging** - track all sync operations
 - **Automatic OAuth token refresh** - no manual token renewal needed
 - **Docker support** - containerized deployment with automated builds
@@ -56,9 +59,11 @@ upload it (via IMAP) to family member X's Gmail inbox.
 
 ### Docker (Recommended)
 
-The easiest way to run this project is with Docker. No Python setup required!
+The easiest way to run this project is with Docker. No Python
+setup required!
 
-Pre-built images are automatically published to GitHub Container Registry:
+Pre-built images are automatically published to GitHub Container
+Registry:
 - On every push to `main` branch → `latest` and `edge` tags
 - On every tagged release → version-specific tags (e.g., `v1.0.0`)
 
@@ -67,7 +72,8 @@ Pull the image:
 docker pull ghcr.io/jsquyres/imap-to-gmail-sync:latest
 ```
 
-See the [Docker Usage](#docker-recommended) section below for complete instructions.
+See the [Docker Usage](#docker-recommended) section below for
+complete instructions.
 
 ### Building Docker Image Locally
 
@@ -78,7 +84,8 @@ To build the Docker image yourself:
 docker build -t imap-to-gmail-sync:local .
 
 # Test it
-docker run --rm imap-to-gmail-sync:local python imap_sync_to_gmail.py --help
+docker run --rm imap-to-gmail-sync:local \
+  python imap_sync_to_gmail.py --help
 ```
 
 ### Native Python Installation
@@ -123,12 +130,21 @@ To use Gmail as the target server, you need to set up OAuth2 credentials:
    - Download the JSON file (button appears after creation)
    - Save it as `client_secret.json`
 
-5. **Publish Your OAuth App** (Important for Long-Running Operation):
+5. **Publish Your OAuth App** (Important for Long-Running
+   Operation):
    - Go to "APIs & Services" → "OAuth consent screen" → "Audience"
    - Click **"PUBLISH APP"** button
    - Confirm the dialog
-   - **Why this matters**: Apps in "Testing" status have refresh tokens that expire after 7 days (or sometimes even within N number of refreshes), requiring manual re-authentication. Published apps have refresh tokens that remain valid indefinitely (until manually revoked), allowing truly unattended operation.
-   - **Note**: For personal/family use with under 100 users, you don't need Google's verification. Your app will show a "Google hasn't verified this app" warning during login - this is normal and safe for personal apps. Just click "Continue" to proceed.
+   - **Why this matters**: Apps in "Testing" status have refresh
+     tokens that expire after 7 days (or sometimes even within N
+     number of refreshes), requiring manual re-authentication.
+     Published apps have refresh tokens that remain valid
+     indefinitely (until manually revoked), allowing truly
+     unattended operation.
+   - **Note**: For personal/family use with under 100 users, you
+     don't need Google's verification. Your app will show a "Google
+     hasn't verified this app" warning during login - this is normal
+     and safe for personal apps. Just click "Continue" to proceed.
 
 6. **Obtain an Access Token**:
    ```bash
@@ -139,13 +155,15 @@ To use Gmail as the target server, you need to set up OAuth2 credentials:
    - Grant the requested permissions
    - The script will display your access token
    - Token is saved in `token.json` for future use
-   - **Important**: Generate tokens AFTER publishing your app to get non-expiring refresh tokens
+   - **Important**: Generate tokens AFTER publishing your app to get
+     non-expiring refresh tokens
 
 ## Usage
 
 ### Docker (Recommended)
 
-The easiest way to run this project is using Docker. Pre-built images are available from GitHub Container Registry.
+The easiest way to run this project is using Docker. Pre-built
+images are available from GitHub Container Registry.
 
 #### Pull the Docker image
 
@@ -172,7 +190,9 @@ cp client_secret.json ~/imap-sync-data/
 docker run --rm -it \
   -v ~/imap-sync-data:/data \
   ghcr.io/jsquyres/imap-to-gmail-sync:latest \
-  python get_gmail_token.py --credentials /data/client_secret.json --token /data/token.json
+  python get_gmail_token.py \
+    --credentials /data/client_secret.json \
+    --token /data/token.json
 ```
 
 #### Create Configuration File
@@ -196,7 +216,9 @@ Create a configuration file at `~/imap-sync-data/config.json`:
 docker run --rm -it \
   -v ~/imap-sync-data:/data \
   ghcr.io/jsquyres/imap-to-gmail-sync:latest \
-  python imap_sync_to_gmail.py --config /data/config.json --log /data/sync.log
+  python imap_sync_to_gmail.py \
+    --config /data/config.json \
+    --log /data/sync.log
 
 # Run the sync in the background (detached)
 docker run -d \
@@ -204,7 +226,9 @@ docker run -d \
   --restart unless-stopped \
   -v ~/imap-sync-data:/data \
   ghcr.io/jsquyres/imap-to-gmail-sync:latest \
-  python imap_sync_to_gmail.py --config /data/config.json --log /data/sync.log
+  python imap_sync_to_gmail.py \
+    --config /data/config.json \
+    --log /data/sync.log
 ```
 
 #### Managing the Container
@@ -228,11 +252,13 @@ docker rm imap-sync
 
 ### Native Python Installation
 
-If you prefer not to use Docker, you can run the scripts directly with Python.
+If you prefer not to use Docker, you can run the scripts directly
+with Python.
 
 #### Configuration File Setup
 
-Create a configuration file (e.g., `config.json`) with your server settings:
+Create a configuration file (e.g., `config.json`) with your server
+settings:
 
 ```json
 {
@@ -254,7 +280,8 @@ python imap_sync_to_gmail.py --config config.json
 
 The script will:
 1. On first run: sync emails from the last 7 days
-2. On subsequent runs: resume from where it left off, only syncing new messages
+2. On subsequent runs: resume from where it left off, only syncing
+   new messages
 3. Track the last 31 days worth of synced messages in
    `sync_state.json` to prevent duplicates
 
@@ -269,13 +296,19 @@ python imap_sync_to_gmail.py --config config.json --debug
 Log to a file (with automatic rotation):
 
 ```bash
-python imap_sync_to_gmail.py --config config.json --log /var/log/imap_sync.log
+python imap_sync_to_gmail.py \
+  --config config.json \
+  --log /var/log/imap_sync.log
 ```
 
 Customize log rotation (500MB max size, keep 10 files):
 
 ```bash
-python imap_sync_to_gmail.py --config config.json --log /var/log/imap_sync.log --log-max-size 500M --log-max-files 10
+python imap_sync_to_gmail.py \
+  --config config.json \
+  --log /var/log/imap_sync.log \
+  --log-max-size 500M \
+  --log-max-files 10
 ```
 
 **Note**: When logging to a file, the script automatically:
@@ -302,7 +335,10 @@ python imap_sync_to_gmail.py --config config.json --log stderr
 If you experience issues with IDLE notifications:
 
 ```bash
-python imap_sync_to_gmail.py --config config.json --no-idle --poll-interval 30
+python imap_sync_to_gmail.py \
+  --config config.json \
+  --no-idle \
+  --poll-interval 30
 ```
 
 ## Command-Line Options
@@ -364,8 +400,10 @@ This state allows the script to:
    - Updates state file after each batch (every 10 messages)
 
 2. **Continuous Monitoring**:
-   - **With IDLE** (preferred): Listens for real-time notifications from source server
-   - **Without IDLE** (fallback): Polls source server at regular intervals
+   - **With IDLE** (preferred): Listens for real-time notifications
+     from source server
+   - **Without IDLE** (fallback): Polls source server at regular
+     intervals
    - When new emails arrive, immediately copies them to target
    - Updates state file with each new message
 
@@ -379,13 +417,15 @@ This state allows the script to:
 
 ### Automatic Token Refresh
 
-The script automatically handles OAuth token refresh when tokens expire. The token file (`token.json`) must contain:
+The script automatically handles OAuth token refresh when tokens
+expire. The token file (`token.json`) must contain:
 - `token`: Current access token
 - `refresh_token`: Used to obtain new access tokens
 - `client_id`: OAuth client ID
 - `client_secret`: OAuth client secret
 
-These fields are automatically saved by `get_gmail_token.py`. When authentication fails due to an expired token, the script will:
+These fields are automatically saved by `get_gmail_token.py`. When
+authentication fails due to an expired token, the script will:
 1. Automatically request a new access token using the refresh token
 2. Update the token file with the new access token
 3. Retry the connection with the refreshed token
@@ -460,4 +500,5 @@ python imap_sync_to_gmail.py --config config.json --debug
 
 ## License
 
-This project is licensed under the BSD 3-Clause License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the BSD 3-Clause License. See the
+[LICENSE](LICENSE) file for details.
