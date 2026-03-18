@@ -205,9 +205,15 @@ Create a configuration file at `~/imap-sync-data/config.json`:
   "source_user": "user@sourceserver.com",
   "source_pass": "source_password",
   "target_user": "your-email@gmail.com",
-  "target_token_file": "/data/token.json"
+  "target_token_file": "/data/token.json",
+  "gmail_append_time_source": "internaldate"
 }
 ```
+
+`gmail_append_time_source` is optional:
+- `internaldate`: use the source IMAP `INTERNALDATE`; if the source
+  server does not provide one, fall back to the message `Date:` header
+- `current_time`: use the time the message is appended to Gmail
 
 #### Run the Sync
 
@@ -266,7 +272,8 @@ settings:
   "source_user": "user@sourceserver.com",
   "source_pass": "source_password",
   "target_user": "your-email@gmail.com",
-  "target_token_file": "token.json"
+  "target_token_file": "token.json",
+  "gmail_append_time_source": "internaldate"
 }
 ```
 
@@ -739,7 +746,8 @@ cat > config.json << EOF
   "source_user": "myuser@oldserver.com",
   "source_pass": "mypassword",
   "target_user": "mynewaccount@gmail.com",
-  "target_token_file": "token.json"
+  "target_token_file": "token.json",
+  "gmail_append_time_source": "internaldate"
 }
 EOF
 
