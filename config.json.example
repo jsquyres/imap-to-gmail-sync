@@ -3,5 +3,6 @@
   "source_user": "user@sourceserver.com",
   "source_pass": "source_password",
   "target_user": "your-email@gmail.com",
-  "target_token_file": "token.json"
+  "target_token_file": "token.json",
+  "gmail_append_time_source": "internaldate"
 }

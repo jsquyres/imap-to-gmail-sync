@@ -15,6 +15,7 @@ import select
 import json
 import requests
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Set, Optional
 import sys
@@ -49,9 +50,15 @@ class ActivityTrackingHandler(logging.Handler):
 class IMAPSync:
     """Handles IMAP email synchronization between two servers."""
 
+    VALID_GMAIL_APPEND_TIME_SOURCES = {
+        'current_time',
+        'internaldate',
+    }
+
     def __init__(self, src_server: str, src_user: str, src_pass: str,
                  tgt_user: str, tgt_oauth_token: str,
-                 state_file: str = 'sync_state.json'):
+                 state_file: str = 'sync_state.json',
+                 gmail_append_time_source: str = 'internaldate'):
         """
         Initialize IMAP synchronization.
 
@@ -62,6 +69,7 @@ class IMAPSync:
             tgt_user: Target Gmail email address
             tgt_oauth_token: Target OAuth2 access token for Gmail
             state_file: Path to state file for tracking synced messages
+            gmail_append_time_source: Timestamp source for Gmail APPEND
         """
         self.src_server = src_server
         self.src_user = src_user
@@ -70,6 +78,7 @@ class IMAPSync:
         self.tgt_user = tgt_user
         self.tgt_oauth_token = tgt_oauth_token
         self.state_file = state_file
+        self.gmail_append_time_source = gmail_append_time_source
 
         self.src_conn: Optional[imaplib.IMAP4_SSL] = None
         self.tgt_conn: Optional[imaplib.IMAP4_SSL] = None
@@ -516,8 +525,8 @@ class IMAPSync:
 
             for num in msg_nums:
                 try:
-                    # Fetch the entire message including headers and body
-                    _, msg_data = conn.fetch(num, '(RFC822)')
+                    # Fetch the message and the source INTERNALDATE.
+                    _, msg_data = conn.fetch(num, '(INTERNALDATE RFC822)')
                     if msg_data and msg_data[0]:
                         raw_email = msg_data[0][1]
                         email_message = email.message_from_bytes(raw_email)
@@ -526,6 +535,10 @@ class IMAPSync:
                         if msg_id:
                             # Extract Date header and convert to ISO format
                             msg_timestamp = self.extract_message_timestamp(email_message)
+                            append_timestamp = self.select_append_timestamp(
+                                email_message,
+                                self.extract_internaldate_timestamp(msg_data)
+                            )
 
                             # Filter out messages that are actually before our UTC cutoff
                             # This handles the timezone safety margin we added above
@@ -534,7 +547,14 @@ class IMAPSync:
                                 logger.debug(f"Skipping message {msg_id} (date: {msg_timestamp}) - older than requested cutoff {since_date.isoformat()} (caught by timezone-safe query margin)")
                                 continue
 
-                            messages.append((msg_id, raw_email, msg_timestamp))
+                            messages.append(
+                                (
+                                    msg_id,
+                                    raw_email,
+                                    msg_timestamp,
+                                    append_timestamp,
+                                )
+                            )
                             logger.debug(f"Fetched message: {msg_id} (date: {msg_timestamp})")
                         else:
                             logger.warning(f"Message {num} has no Message-ID")
@@ -571,13 +591,52 @@ class IMAPSync:
         # Fallback to current UTC time if Date header is missing or invalid
         return datetime.now(timezone.utc).isoformat()
 
-    def copy_message(self, message_data: bytes) -> bool:
+    def extract_internaldate_timestamp(self, fetch_data) -> Optional[str]:
+        """Extract source IMAP INTERNALDATE from a FETCH response."""
+        for item in fetch_data:
+            if not isinstance(item, tuple) or not item[0]:
+                continue
+
+            response_text = item[0]
+            if isinstance(response_text, bytes):
+                response_text = response_text.decode('ascii', 'ignore')
+
+            match = re.search(r'INTERNALDATE "([^"]+)"', response_text)
+            if not match:
+                continue
+
+            try:
+                internaldate = datetime.strptime(
+                    match.group(1),
+                    '%d-%b-%Y %H:%M:%S %z'
+                )
+                return internaldate.astimezone(timezone.utc).isoformat()
+            except ValueError as e:
+                logger.debug(f"Could not parse INTERNALDATE: {e}")
+
+        return None
+
+    def select_append_timestamp(self, email_message,
+                                internaldate_timestamp:
+                                Optional[str]) -> Optional[str]:
+        """Choose which timestamp to use when appending to Gmail."""
+        if self.gmail_append_time_source == 'current_time':
+            return None
+
+        if internaldate_timestamp:
+            return internaldate_timestamp
+
+        return self.extract_message_timestamp(email_message)
+
+    def copy_message(self, message_data: bytes,
+                     append_timestamp: Optional[str] = None) -> bool:
         """
         Copy a message to the target server's INBOX.
         Implements retry logic with connection recovery for transient failures.
 
         Args:
             message_data: Raw email message data
+            append_timestamp: Timestamp to use for Gmail APPEND
 
         Returns:
             True if successful, False otherwise
@@ -585,8 +644,26 @@ class IMAPSync:
         try:
             def _copy():
                 self.tgt_conn.select('INBOX')
-                # Use APPEND to add the message directly
-                self.tgt_conn.append('INBOX', '', imaplib.Time2Internaldate(time.time()), message_data)
+                append_time = time.time()
+
+                if append_timestamp:
+                    try:
+                        msg_datetime = datetime.fromisoformat(
+                            append_timestamp
+                        )
+                        append_time = imaplib.Time2Internaldate(
+                            msg_datetime
+                        )
+                    except Exception as e:
+                        logger.debug(
+                            "Could not parse timestamp for APPEND: "
+                            f"{append_timestamp}: {e}"
+                        )
+
+                # Use APPEND to add the message directly, preserving the
+                # original message timestamp when available.
+                self.tgt_conn.append('INBOX', '', append_time,
+                                     message_data)
 
             self.with_target_retry(_copy, max_attempts=5)
             return True
@@ -664,7 +741,8 @@ class IMAPSync:
         skipped_count = 0
         synced_message_ids = self.state['synced_message_ids']
 
-        for msg_id, msg_data, msg_timestamp in source_messages:
+        for msg_id, msg_data, msg_timestamp, append_timestamp in (
+                source_messages):
             # Skip if already synced in previous runs
             if msg_id in synced_message_ids:
                 logger.debug(f"Message synced previously: {msg_id}")
@@ -674,7 +752,7 @@ class IMAPSync:
             # Check if this specific message exists on target
             if not self.check_message_exists(self.tgt_conn, msg_id):
                 logger.info(f"Copying message: {msg_id}")
-                if self.copy_message(msg_data):
+                if self.copy_message(msg_data, append_timestamp):
                     copied_count += 1
                     synced_message_ids[msg_id] = msg_timestamp
                     # Save state periodically (every 10 messages)
@@ -744,7 +822,9 @@ class IMAPSync:
                     # Convert UID to string for logging (handle both bytes and int)
                     uid_str = uid.decode() if isinstance(uid, bytes) else str(uid)
                     logger.debug(f"Fetching message UID: {uid_str}")
-                    _, msg_data = self.src_conn.uid('FETCH', uid, '(RFC822)')
+                    _, msg_data = self.src_conn.uid(
+                        'FETCH', uid, '(INTERNALDATE RFC822)'
+                    )
                     if msg_data and msg_data[0]:
                         raw_email = msg_data[0][1]
                         email_message = email.message_from_bytes(raw_email)
@@ -758,6 +838,10 @@ class IMAPSync:
 
                             # Extract message timestamp
                             msg_timestamp = self.extract_message_timestamp(email_message)
+                            append_timestamp = self.select_append_timestamp(
+                                email_message,
+                                self.extract_internaldate_timestamp(msg_data)
+                            )
 
                             # Extract subject for logging
                             # Note: sometimes the subjects have newlines in them, likely from
@@ -767,7 +851,7 @@ class IMAPSync:
                             # Check if already exists on target before copying
                             if not self.check_message_exists(self.tgt_conn, msg_id):
                                 logger.info(f"Copying new message: {msg_id}: {subject}")
-                                if self.copy_message(raw_email):
+                                if self.copy_message(raw_email, append_timestamp):
                                     logger.info(f"Successfully copied: {msg_id}: {subject}")
                                     synced_message_ids[msg_id] = msg_timestamp
                                     copied_in_batch += 1
@@ -1160,6 +1244,22 @@ def main():
         logger.error(f"Missing required fields in configuration: {', '.join(missing_fields)}")
         return 1
 
+    gmail_append_time_source = config.get(
+        'gmail_append_time_source',
+        'internaldate'
+    )
+    if gmail_append_time_source not in (
+            IMAPSync.VALID_GMAIL_APPEND_TIME_SOURCES):
+        valid_sources = ', '.join(
+            sorted(IMAPSync.VALID_GMAIL_APPEND_TIME_SOURCES)
+        )
+        logger.error(
+            "Invalid gmail_append_time_source value "
+            f"'{gmail_append_time_source}'. "
+            f"Expected one of: {valid_sources}"
+        )
+        return 1
+
     # Load OAuth token from file
     try:
         token_file_path = config['target_token_file']
@@ -1186,7 +1286,8 @@ def main():
         src_pass=config['source_pass'],
         tgt_user=config['target_user'],
         tgt_oauth_token=oauth_token,
-        state_file=args.state_file
+        state_file=args.state_file,
+        gmail_append_time_source=gmail_append_time_source
     )
 
     # Store token file info for potential refresh
